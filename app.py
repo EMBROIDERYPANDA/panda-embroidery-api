@@ -15,8 +15,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import traceback
 
-app = Flask(__name__)
-CORS(app)
+app = Flask(__name__, static_folder='static', template_folder='.')
+CORS(app, origins='*')
 
 # ── Thread color databases ─────────────────────────────────
 MADEIRA_COLORS = {
@@ -590,7 +590,6 @@ def generate_pdf():
 
 
 # ── HEALTH CHECK ───────────────────────────────────────────
-@app.route('/', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({
@@ -600,6 +599,12 @@ def health():
         'supported': ['DST','PES','JEF','VP3','HUS','EXP','XXX','EMB'],
         'features' : ['parse','resize','convert','bulk_convert','change_colors','pdf']
     })
+
+# ── SERVE VIEWER ────────────────────────────────────────────
+@app.route('/', methods=['GET'])
+def serve_viewer():
+    from flask import send_from_directory
+    return send_from_directory('.', 'viewer.html')
 
 
 if __name__ == '__main__':
