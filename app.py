@@ -510,117 +510,43 @@ def generate_pdf():
                                        textColor=teal, spaceAfter=4)
         sub_style    = ParagraphStyle('sub', fontSize=10, textColor=colors.gray, spaceAfter=12)
 
-        story.append(Paragraph('🐼 Panda Embroidery Viewer', header_style))
-        story.append(Paragraph(f"Design: {design.get('filename', 'Unknown')} · Generated {__import__('datetime').datetime.now().strftime('%B %d, %Y')}", sub_style))
-
-        # ── Preview image ────────────────────────────────────
-        if preview:
-            try:
-                img_data = base64.b64decode(preview.split(',')[-1])
-                img_buf  = io.BytesIO(img_data)
-                rl_img   = RLImage(img_buf, width=80*mm, height=80*mm)
-                rl_img.hAlign = 'LEFT'
-                story.append(rl_img)
-                story.append(Spacer(1, 8*mm))
-            except:
-                pass
-
-        # ── Design info table ────────────────────────────────
-        story.append(Paragraph('Design Information', ParagraphStyle('sh', fontSize=12, fontName='Helvetica-Bold', textColor=teal, spaceAfter=6)))
-
-        info_data = [
-            ['Property', 'Value'],
-            ['Format',        design.get('format', '—')],
-            ['Stitch Count',  f"{design.get('stitch_count', 0):,}"],
-            ['Thread Colors', str(design.get('color_count', 0))],
-            ['Width',         f"{design.get('width_mm', 0)} mm / {design.get('width_in', 0)}\""],
-            ['Height',        f"{design.get('height_mm', 0)} mm / {design.get('height_in', 0)}\""],
-            ['Jump Stitches', f"{design.get('jump_count', 0):,}"],
-            ['Trims',         str(design.get('trim_count', 0))],
-            ['Est. Time',     f"{design.get('time_min', 0)} min @ 800 SPM"],
-            ['Thread Needed', f"~{design.get('thread_m', 0)} meters"],
-            ['Density',       f"{design.get('density', 0)} st/cm²"],
-        ]
-
-        t = Table(info_data, colWidths=[60*mm, 100*mm])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), teal),
-            ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
-            ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE',   (0,0), (-1,-1), 9),
-            ('BACKGROUND', (0,1), (-1,-1), colors.white),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f0fdfc')]),
-            ('GRID',       (0,0), (-1,-1), 0.5, colors.HexColor('#e5e7eb')),
-            ('PADDING',    (0,0), (-1,-1), 6),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 8*mm))
-
-        # ── Hoop compatibility ───────────────────────────────
-        story.append(Paragraph('Hoop Compatibility', ParagraphStyle('sh2', fontSize=12, fontName='Helvetica-Bold', textColor=teal, spaceAfter=6)))
-
-        hoops = [
-            ('4"×4"', 97, 97), ('5"×5"', 124, 124), ('5"×7"', 127, 177),
-            ('6"×10"', 149, 251), ('8"×8"', 197, 197), ('8"×12"', 197, 302),
-            ('9.5"×9.5"', 237, 237),
-        ]
-        w = design.get('width_mm', 0)
-        h = design.get('height_mm', 0)
-
-        hoop_data = [['Hoop', 'Usable Area', 'Status', 'Free Space']]
-        for hname, hw, hh in hoops:
-            fits = w > 0 and (w + 20 <= hw) and (h + 20 <= hh)
-            status = '✓ Fits' if fits else '✗ Too small'
-            free   = f"{hw-w:.0f}×{hh-h:.0f}mm" if fits else f"Need {max(0,w+20-hw):.0f}×{max(0,h+20-hh):.0f}mm more"
-            hoop_data.append([hname, f'{hw}×{hh}mm', status, free])
-
-        ht = Table(hoop_data, colWidths=[35*mm, 40*mm, 35*mm, 50*mm])
-        ht.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), teal),
-            ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
-            ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE',   (0,0), (-1,-1), 9),
-            ('GRID',       (0,0), (-1,-1), 0.5, colors.HexColor('#e5e7eb')),
-            ('PADDING',    (0,0), (-1,-1), 5),
-        ]))
-        story.append(ht)
-        story.append(Spacer(1, 8*mm))
-
-        # ── Color sequence ───────────────────────────────────
-        story.append(Paragraph('Thread Color Sequence', ParagraphStyle('sh3', fontSize=12, fontName='Helvetica-Bold', textColor=teal, spaceAfter=6)))
-
-        color_data = [['#', 'Color', 'Name', 'Stitches', 'Jumps', 'Trims']]
-        for c in design.get('colors', []):
-            color_data.append([
-                str(c.get('index', 0) + 1),
-                c.get('color', '#000'),
-                c.get('name', f"Color {c.get('index',0)+1}"),
-                f"{c.get('count', 0):,}",
-                str(c.get('jumps', 0)),
-                str(c.get('trims', 0)),
-            ])
-
-        ct = Table(color_data, colWidths=[12*mm, 20*mm, 60*mm, 28*mm, 20*mm, 20*mm])
-        ct_style = [
-            ('BACKGROUND', (0,0), (-1,0), teal),
-            ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
-            ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE',   (0,0), (-1,-1), 9),
-            ('GRID',       (0,0), (-1,-1), 0.5, colors.HexColor('#e5e7eb')),
-            ('PADDING',    (0,0), (-1,-1), 5),
-        ]
-        for i, c in enumerate(design.get('colors', []), 1):
-            try:
-                hex_c = c.get('color', '#cccccc').lstrip('#')
-                r,g,b = int(hex_c[0:2],16)/255, int(hex_c[2:4],16)/255, int(hex_c[4:6],16)/255
-                ct_style.append(('BACKGROUND', (1,i), (1,i), colors.Color(r,g,b)))
-            except:
-                pass
-
-        ct.setStyle(TableStyle(ct_style))
-        story.append(ct)
-
-        # ── Footer ───────────────────────────────────────────
-        story.append(Spacer(1, 10*mm))
         story.append(Paragraph(
-            '🐼 Panda Embroidery Viewer · pandadesigns.com · Professional Embroidery Tool Sui
+            'Panda Embroidery Viewer - Professional Embroidery Tool Suite',
+            ParagraphStyle('footer', fontSize=8, textColor=colors.gray, alignment=TA_CENTER)
+        ))
+
+        doc.build(story)
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=f"{design.get('filename','design')}_report.pdf",
+            mimetype='application/pdf'
+        )
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── HEALTH CHECK ───────────────────────────────────────────
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status'   : 'ok',
+        'service'  : 'Panda Embroidery API',
+        'version'  : '1.0.0',
+        'supported': ['DST','PES','JEF','VP3','HUS','EXP','XXX','EMB'],
+        'features' : ['parse','resize','convert','bulk_convert','change_colors','pdf']
+    })
+
+# ── SERVE VIEWER ────────────────────────────────────────────
+@app.route('/', methods=['GET'])
+def serve_viewer():
+    from flask import send_from_directory
+    return send_from_directory('.', 'viewer.html')
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
