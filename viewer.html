@@ -623,8 +623,18 @@ document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.ctrlKey){if(e.key==='o'){e.preventDefault();openFile()}if(e.key==='p'){e.preventDefault();expPDF()}if(e.key==='e'){e.preventDefault();expPNG()}return}
   if(e.key==='f'||e.key==='F')fitV();if(e.key==='+'||e.key==='=')zI();if(e.key==='-')zO();
-  if(e.key==='1')setZ(1);if(e.key==='2')setZ(2);if(e.key==='r')rot(90);if(e.key==='Escape'){closeC();showAll()}
+  if(e.key==='1')setZ(1);if(e.key==='2')setZ(2);if(e.key==='r')rotate(90);if(e.key==='Escape'){closeC();showAll()}
 });
+
+// expose functions globally for inline onclick handlers
+Object.assign(window,{
+openFile,handleFile,expPDF,expPNG,saveF,setMode,toggleRun,
+zI,zO,fitV,setZ,togColor,showAll,setBg,setHoop,rotate,mH,mV,
+setUnit,rFromW,rFromH,togLock,applyR,resetD,showTab,
+setSolo,togHide,selHoop,openCE,closeC,sColor,sHex,applyC,
+convF,addBulk,bulkConv,clearBulk
+});
+
 }); // DOMContentLoaded
 </script>
 </body>
