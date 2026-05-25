@@ -99,9 +99,30 @@ def safe_get_bounds(pattern):
 
 
 
-def recalculate_stitches(pattern, max_stitch=40):
-    new_stitches = []
 
+
+def recalculate_stitches(pattern, scale_factor=1.0, max_stitch=12, density_power=1.65):
+    """
+    Mini Wilcom-style approximation for raw stitch files.
+    This is not true object re-digitizing, because DST/PES often only contain needle points.
+    It improves enlarged files by adding proportional stitches along existing stitch paths.
+
+    Logic:
+    - Enlargement target ≈ old path stitches × scale_factor^density_power
+    - Splits each stitch segment based on enlargement ratio and segment length
+    - Does not create fake stitches over jumps/trims/color changes
+    - Keeps commands/colors compatible with pyembroidery write()
+    """
+    scale_factor = max(1.0, float(scale_factor))
+    target_mult = max(1.0, scale_factor ** density_power)
+
+    old_stitch_count = 0
+    for s in pattern.stitches:
+        cmd_clean = s[2] & pyembroidery.COMMAND_MASK
+        if cmd_clean == pyembroidery.STITCH:
+            old_stitch_count += 1
+
+    new_stitches = []
     prev_x = None
     prev_y = None
 
@@ -114,20 +135,183 @@ def recalculate_stitches(pattern, max_stitch=40):
             dy = y - prev_y
             dist = (dx ** 2 + dy ** 2) ** 0.5
 
-            if dist > max_stitch:
-                parts = int(dist // max_stitch) + 1
+            # Segment split strength:
+            # 3"->10" scale 3.33 => target_mult around 7.3x, not insane 11x square.
+            parts_by_density = int(math.ceil(target_mult))
+            parts_by_length = int(math.ceil(dist / max_stitch))
+            parts = max(1, parts_by_density, parts_by_length)
 
-                for i in range(1, parts):
-                    nx = int(prev_x + (dx * i / parts))
-                    ny = int(prev_y + (dy * i / parts))
-                    new_stitches.append([nx, ny, cmd])
+            # Very tiny segments should not explode too much
+            if dist < 3:
+                parts = min(parts, 2)
 
-        new_stitches.append([x, y, cmd])
-        prev_x = x
-        prev_y = y
+            for i in range(1, parts):
+                nx = int(round(prev_x + (dx * i / parts)))
+                ny = int(round(prev_y + (dy * i / parts)))
+                new_stitches.append([nx, ny, cmd])
+
+        new_stitches.append([int(round(x)), int(round(y)), cmd])
+
+        # Break continuity on non-sewing commands
+        if cmd_clean in (pyembroidery.JUMP, pyembroidery.TRIM, pyembroidery.COLOR_CHANGE, pyembroidery.STOP, pyembroidery.END):
+            prev_x = None
+            prev_y = None
+        else:
+            prev_x = x
+            prev_y = y
 
     pattern.stitches = new_stitches
     return pattern
+
+
+
+
+
+
+
+def analyze_stitch_quality(pattern):
+    stitches = pattern.stitches or []
+    stitch_lengths = []
+    long_stitches = []
+    micro_stitches = []
+    density_grid = {}
+    jump_count = 0
+    trim_count = 0
+    stitch_count = 0
+
+    prev_x = None
+    prev_y = None
+    grid_mm = 5
+    grid_units = grid_mm * 10
+
+    for idx, stitch in enumerate(stitches):
+        x, y, cmd = stitch[0], stitch[1], stitch[2]
+        cmd_clean = cmd & pyembroidery.COMMAND_MASK
+
+        if cmd_clean == pyembroidery.STITCH:
+            stitch_count += 1
+            gx = int(math.floor(x / grid_units))
+            gy = int(math.floor(y / grid_units))
+            key = f"{gx},{gy}"
+            density_grid[key] = density_grid.get(key, 0) + 1
+
+            if prev_x is not None:
+                dist_units = math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
+                dist_mm = dist_units / 10.0
+                stitch_lengths.append(dist_mm)
+
+                if dist_mm > 7:
+                    long_stitches.append({
+                        "index": idx,
+                        "length_mm": round(dist_mm, 2),
+                        "x": round(x / 10, 2),
+                        "y": round(y / 10, 2)
+                    })
+                elif 0 < dist_mm < 0.25:
+                    micro_stitches.append({
+                        "index": idx,
+                        "length_mm": round(dist_mm, 2),
+                        "x": round(x / 10, 2),
+                        "y": round(y / 10, 2)
+                    })
+
+            prev_x = x
+            prev_y = y
+
+        elif cmd_clean == pyembroidery.JUMP:
+            jump_count += 1
+            prev_x = None
+            prev_y = None
+        elif cmd_clean == pyembroidery.TRIM:
+            trim_count += 1
+            prev_x = None
+            prev_y = None
+        elif cmd_clean in (pyembroidery.COLOR_CHANGE, pyembroidery.STOP, pyembroidery.END):
+            prev_x = None
+            prev_y = None
+
+    max_density = max(density_grid.values()) if density_grid else 0
+    avg_len = round(sum(stitch_lengths) / max(1, len(stitch_lengths)), 2)
+    max_density_cm2 = round(max_density / 0.25, 1) if max_density else 0
+
+    warnings = []
+    if long_stitches:
+        warnings.append(f"{len(long_stitches)} long stitches found")
+    if micro_stitches:
+        warnings.append(f"{len(micro_stitches)} micro stitches found")
+    if max_density_cm2 > 120:
+        warnings.append("High density area detected")
+    if trim_count > max(10, stitch_count * 0.02):
+        warnings.append("High trim count detected")
+
+    score = 100
+    score -= min(35, len(long_stitches) * 2)
+    score -= min(20, len(micro_stitches))
+    if max_density_cm2 > 120:
+        score -= 20
+    if max_density_cm2 > 180:
+        score -= 20
+    score = max(0, score)
+
+    return {
+        "score": score,
+        "stitch_count": stitch_count,
+        "jump_count": jump_count,
+        "trim_count": trim_count,
+        "avg_stitch_length_mm": avg_len,
+        "max_density_st_cm2": max_density_cm2,
+        "long_stitches_count": len(long_stitches),
+        "micro_stitches_count": len(micro_stitches),
+        "warnings": warnings,
+        "long_stitches_sample": long_stitches[:50],
+        "micro_stitches_sample": micro_stitches[:50],
+        "density_grid": density_grid,
+        "grid_mm": grid_mm
+    }
+
+
+def repair_stitches(pattern, max_stitch_mm=6.0, min_stitch_mm=0.2):
+    repaired = []
+    prev_x = None
+    prev_y = None
+    added = 0
+    removed = 0
+
+    max_units = max_stitch_mm * 10
+    min_units = min_stitch_mm * 10
+
+    for stitch in pattern.stitches:
+        x, y, cmd = stitch[0], stitch[1], stitch[2]
+        cmd_clean = cmd & pyembroidery.COMMAND_MASK
+
+        if cmd_clean == pyembroidery.STITCH and prev_x is not None:
+            dx = x - prev_x
+            dy = y - prev_y
+            dist = math.sqrt(dx * dx + dy * dy)
+
+            if 0 < dist < min_units:
+                removed += 1
+                continue
+
+            if dist > max_units:
+                parts = int(math.ceil(dist / max_units))
+                for i in range(1, parts):
+                    nx = int(round(prev_x + dx * i / parts))
+                    ny = int(round(prev_y + dy * i / parts))
+                    repaired.append([nx, ny, cmd])
+                    added += 1
+
+        repaired.append([int(round(x)), int(round(y)), cmd])
+
+        if cmd_clean in (pyembroidery.JUMP, pyembroidery.TRIM, pyembroidery.COLOR_CHANGE, pyembroidery.STOP, pyembroidery.END):
+            prev_x = None
+            prev_y = None
+        else:
+            prev_x = x
+            prev_y = y
+
+    pattern.stitches = repaired
+    return pattern, added, removed
 
 
 # ── PARSE FILE ─────────────────────────────────────────────
@@ -311,8 +495,8 @@ def resize_file():
         pattern.stitches = new_stitches
 
         # Optional stitch recalculation for enlarged designs
-        if recalc and (sx > 1.15 or sy > 1.15):
-            pattern = recalculate_stitches(pattern)
+        if recalc and (sx > 1.01 or sy > 1.01):
+            pattern = recalculate_stitches(pattern, scale_factor=max(sx, sy), max_stitch=12, density_power=1.65)
 
         # Write output
         out_suffix = f'.{out_fmt}'
@@ -487,6 +671,88 @@ def bulk_convert():
         return jsonify({'error': str(e)}), 500
 
 
+
+# ── ADVANCED QUALITY ANALYZE ───────────────────────────────
+@app.route('/api/analyze', methods=['POST'])
+def analyze_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file'}), 400
+
+        file = request.files['file']
+        ext = file.filename.rsplit('.', 1)[-1].lower()
+
+        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+            tmp_path = tmp.name
+            file.save(tmp_path)
+
+        try:
+            pattern = pyembroidery.read(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+        if pattern is None:
+            return jsonify({'error': 'Could not read file'}), 400
+
+        result = analyze_stitch_quality(pattern)
+        return jsonify({'success': True, 'filename': file.filename, 'analysis': result})
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── AUTO STITCH REPAIR ─────────────────────────────────────
+@app.route('/api/repair', methods=['POST'])
+def repair_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file'}), 400
+
+        file = request.files['file']
+        ext = file.filename.rsplit('.', 1)[-1].lower()
+        out_fmt = request.form.get('format', ext).lower()
+        max_stitch_mm = float(request.form.get('max_stitch_mm', 6.0))
+        min_stitch_mm = float(request.form.get('min_stitch_mm', 0.2))
+
+        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+            tmp_path = tmp.name
+            file.save(tmp_path)
+
+        try:
+            pattern = pyembroidery.read(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+        if pattern is None:
+            return jsonify({'error': 'Could not read file'}), 400
+
+        pattern, added, removed = repair_stitches(pattern, max_stitch_mm=max_stitch_mm, min_stitch_mm=min_stitch_mm)
+
+        with tempfile.NamedTemporaryFile(suffix=f'.{out_fmt}', delete=False) as out_tmp:
+            out_path = out_tmp.name
+
+        try:
+            pyembroidery.write(pattern, out_path)
+            with open(out_path, 'rb') as f:
+                data = f.read()
+        finally:
+            os.unlink(out_path)
+
+        out_filename = file.filename.rsplit('.', 1)[0] + f'_repaired.{out_fmt}'
+        resp = send_file(
+            io.BytesIO(data),
+            as_attachment=True,
+            download_name=out_filename,
+            mimetype='application/octet-stream'
+        )
+        resp.headers['X-Repair-Added-Stitches'] = str(added)
+        resp.headers['X-Repair-Removed-Micro-Stitches'] = str(removed)
+        return resp
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
 # ── PDF REPORT ─────────────────────────────────────────────
 @app.route('/api/pdf', methods=['POST'])
 def generate_pdf():
@@ -537,7 +803,7 @@ def health():
         'service'  : 'Panda Embroidery API',
         'version'  : '1.0.0',
         'supported': ['DST','PES','JEF','VP3','HUS','EXP','XXX','EMB'],
-        'features' : ['parse','resize','convert','bulk_convert','change_colors','pdf']
+        'features' : ['parse','resize','convert','bulk_convert','change_colors','pdf','analyze','repair']
     })
 
 # ── SERVE VIEWER ────────────────────────────────────────────
