@@ -78,6 +78,25 @@ def get_thread_name(thread_color, index):
             return f"#{thread_color.catalog_number}"
     return f"Color {index + 1}"
 
+
+def safe_get_bounds(pattern):
+    xs = []
+    ys = []
+
+    for stitch in pattern.stitches:
+        try:
+            x, y = stitch[0], stitch[1]
+            xs.append(x)
+            ys.append(y)
+        except:
+            pass
+
+    if not xs or not ys:
+        return 0, 0, 0, 0
+
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 # ── PARSE FILE ─────────────────────────────────────────────
 @app.route('/api/parse', methods=['POST'])
 def parse_file():
@@ -107,8 +126,7 @@ def parse_file():
             return jsonify({'error': 'Could not parse file. File may be corrupted.'}), 400
 
         # ── Extract data ──────────────────────────────────
-        bounds   = pattern.get_bounds()
-        min_x, min_y, max_x, max_y = bounds
+        min_x, min_y, max_x, max_y = safe_get_bounds(pattern)
 
         width_mm  = round((max_x - min_x) / 10, 1)
         height_mm = round((max_y - min_y) / 10, 1)
@@ -240,9 +258,9 @@ def resize_file():
         if pattern is None:
             return jsonify({'error': 'Could not read file'}), 400
 
-        bounds = pattern.get_bounds()
-        orig_w = (bounds[2] - bounds[0]) / 10  # mm
-        orig_h = (bounds[3] - bounds[1]) / 10  # mm
+        min_x, min_y, max_x, max_y = safe_get_bounds(pattern)
+        orig_w = (max_x - min_x) / 10  # mm
+        orig_h = (max_y - min_y) / 10  # mm
 
         if orig_w <= 0 or orig_h <= 0:
             return jsonify({'error': 'Invalid design dimensions'}), 400
