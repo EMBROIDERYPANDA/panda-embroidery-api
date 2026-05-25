@@ -254,6 +254,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
       <button class="xbtn" id="bXPDF" onclick="expPDF()" disabled>📄 PDF Report</button>
       <button class="xbtn sec" id="bXPNG" onclick="expPNG()" disabled>🖼️ PNG Preview</button>
+      <button class="xbtn" id="bAnalyze" onclick="analyzeF()" disabled>🧪 Quality Analyze</button>
+      <button class="xbtn sec" id="bRepair" onclick="repairF()" disabled>🛠️ Auto Repair File</button>
+      <div id="analysisBox" style="font-size:11px;background:var(--light);border-radius:7px;padding:7px;margin-bottom:7px;display:none"></div>
       <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
       <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;margin-bottom:6px">Bulk Convert</div>
       <div class="bdrop" id="bd" onclick="document.getElementById('bi').click()">
@@ -630,7 +633,7 @@ function updHoopGrid(wm,hm){
 }
 function selHoop(w,h){hoop={w,h};document.getElementById('hoopSel').value=`${w},${h}`;updHoopGrid(D?.width_mm||0,D?.height_mm||0);render()}
 function updStatus(){if(!D)return;document.getElementById('sF').textContent=D.filename;document.getElementById('sSt').textContent=Number(D.stitch_count).toLocaleString()+' st';document.getElementById('sCo').textContent=D.color_count+' colors';document.getElementById('sSz').textContent=D.width_in+'"×'+D.height_in+'"'}
-function enableBtns(){['bPDF','bPNG','bSave','bConv','bXPDF','bXPNG'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=false})}
+function enableBtns(){['bPDF','bPNG','bSave','bConv','bXPDF','bXPNG','bAnalyze','bRepair'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=false})}
 
 // ─── COLOR EDITOR ─────────────────────────────────────────────
 function openCE(i){
@@ -715,6 +718,79 @@ async function expPDF(){
   }catch(e){hideL();alert('PDF error: '+e.message)}
 }
 
+
+async function analyzeF(){
+  if(!curFile)return;
+  showL('Analyzing embroidery quality...',30);
+  try{
+    const fd=new FormData();
+    fd.append('file',curFile);
+    const r=await fetch(API+'/api/analyze',{method:'POST',body:fd});
+    setL('Reading results...',80);
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      throw new Error(e.error||'Server error '+r.status);
+    }
+    const j=await r.json();
+    hideL();
+    const a=j.analysis||{};
+    const box=document.getElementById('analysisBox');
+    if(box){
+      box.style.display='block';
+      const warns=(a.warnings||[]).map(w=>`<div style="color:#dc2626">⚠ ${w}</div>`).join('') || '<div style="color:#16a34a">✅ No major issue found</div>';
+      box.innerHTML=`
+        <div style="font-weight:800;margin-bottom:5px">Quality Score: ${a.score}/100</div>
+        <div>Avg stitch: ${a.avg_stitch_length_mm}mm</div>
+        <div>Max density: ${a.max_density_st_cm2} st/cm²</div>
+        <div>Long stitches: ${a.long_stitches_count}</div>
+        <div>Micro stitches: ${a.micro_stitches_count}</div>
+        <hr style="border:none;border-top:1px solid #ddd;margin:6px 0">
+        ${warns}
+      `;
+    }
+  }catch(e){
+    hideL();
+    alert('Analyze error: '+e.message);
+  }
+}
+
+async function repairF(){
+  if(!curFile)return;
+  const fmt=(D?.format||curFile.name.split('.').pop()).toLowerCase();
+  showL('Repairing stitches...',30);
+  try{
+    const fd=new FormData();
+    fd.append('file',curFile);
+    fd.append('format',fmt);
+    fd.append('max_stitch_mm','6');
+    fd.append('min_stitch_mm','0.2');
+
+    const r=await fetch(API+'/api/repair',{method:'POST',body:fd});
+    setL('Downloading repaired file...',80);
+
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      throw new Error(e.error||'Server error '+r.status);
+    }
+
+    const b=await r.blob();
+    const added=r.headers.get('X-Repair-Added-Stitches')||'0';
+    const removed=r.headers.get('X-Repair-Removed-Micro-Stitches')||'0';
+    const u=URL.createObjectURL(b);
+    const a=document.createElement('a');
+    a.href=u;
+    a.download=curFile.name.replace(/\.[^.]+$/,'')+'_repaired.'+fmt;
+    a.click();
+    URL.revokeObjectURL(u);
+    hideL();
+    alert('Repair complete. Added stitches: '+added+' | Removed micro stitches: '+removed);
+  }catch(e){
+    hideL();
+    alert('Repair error: '+e.message);
+  }
+}
+
+
 // ─── BULK ─────────────────────────────────────────────────────
 function addBulk(files){for(const f of files)bulkFiles.push(f);renderBL();document.getElementById('bBulk').disabled=bulkFiles.length===0}
 function renderBL(){document.getElementById('bl').innerHTML=bulkFiles.map(f=>`<div class="bfile"><span>${f.name}</span><span style="color:var(--gray)">${Math.round(f.size/1024)}KB</span></div>`).join('')}
@@ -750,7 +826,7 @@ openFile,handleFile,expPDF,expPNG,saveF,setMode,toggleRun,
 zI,zO,fitV,setZ,togColor,showAll,setBg,setHoop,rotate,mH,mV,
 setUnit,rFromW,rFromH,togLock,applyR,resetD,showTab,
 setSolo,togHide,selHoop,openCE,closeC,sColor,sHex,applyC,
-convF,downloadCurrentFile,addBulk,bulkConv,clearBulk
+convF,downloadCurrentFile,analyzeF,repairF,addBulk,bulkConv,clearBulk
 });
 
 }); // DOMContentLoaded
