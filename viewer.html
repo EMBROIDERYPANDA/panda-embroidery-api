@@ -125,6 +125,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 <div class="toolbar">
   <div class="tg">
     <button class="tb on" id="mR" onclick="setMode('real')">🧵 Real</button>
+    <button class="tb" id="mTV" onclick="setMode('trueview')">✨ TrueView</button>
     <button class="tb" id="mW" onclick="setMode('wire')">〰 Wire</button>
     <button class="tb" id="mD" onclick="setMode('dots')">• Dots</button>
     <button class="tb" id="mT" onclick="setMode('trims')">✂ Trims</button>
@@ -161,6 +162,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="ps"><div class="pt">View Mode</div>
       <div class="tgrid">
         <button class="lbtn on" id="lR" onclick="setMode('real')">🧵 Real</button>
+        <button class="lbtn" id="lTV" onclick="setMode('trueview')">✨ TrueView</button>
         <button class="lbtn" id="lW" onclick="setMode('wire')">〰 Wire</button>
         <button class="lbtn" id="lD" onclick="setMode('dots')">• Dots</button>
         <button class="lbtn" id="lDn" onclick="setMode('density')">🔥 Density</button>
@@ -357,6 +359,74 @@ async function handleFile(file){
 }
 
 // ─── RENDER ───────────────────────────────────────────────────
+
+function shadeHex(hex, amt){
+  hex = (hex || '#555555').replace('#','');
+  if(hex.length !== 6) return '#555555';
+  let r=parseInt(hex.substring(0,2),16), g=parseInt(hex.substring(2,4),16), b=parseInt(hex.substring(4,6),16);
+  r=Math.max(0,Math.min(255,r+amt)); g=Math.max(0,Math.min(255,g+amt)); b=Math.max(0,Math.min(255,b+amt));
+  return '#'+r.toString(16).padStart(2,'0')+g.toString(16).padStart(2,'0')+b.toString(16).padStart(2,'0');
+}
+
+function renderTrueView(ctx, cols, maxP){
+  // TrueView-style approximation: layered stitches with shadow + highlight.
+  let tot = 0;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  cols.forEach(col=>{
+    if(!col.points || col.points.length < 2) return;
+    const base = colored ? col.color : '#222222';
+    const dark = shadeHex(base, -55);
+    const light = shadeHex(base, 65);
+
+    for(let i=1;i<col.points.length;i++){
+      if(tot++ > maxP) break;
+      const p0 = col.points[i-1], p1 = col.points[i];
+      const x0=p0[0], y0=p0[1], x1=p1[0], y1=p1[1], t=p1[2];
+
+      if(t !== 0) continue;
+
+      const dx=x1-x0, dy=y1-y0;
+      const len=Math.sqrt(dx*dx+dy*dy) || 1;
+      const nx=-dy/len, ny=dx/len;
+      const lw=Math.max(1.25/zoom, Math.min(4.2/zoom, 2.4/zoom));
+
+      // soft under-shadow
+      ctx.strokeStyle='rgba(0,0,0,.22)';
+      ctx.lineWidth=lw*1.55;
+      ctx.beginPath();
+      ctx.moveTo(x0+nx*.9+1/zoom,y0+ny*.9+1/zoom);
+      ctx.lineTo(x1+nx*.9+1/zoom,y1+ny*.9+1/zoom);
+      ctx.stroke();
+
+      // darker base thread
+      ctx.strokeStyle=dark;
+      ctx.lineWidth=lw*1.25;
+      ctx.beginPath();
+      ctx.moveTo(x0,y0);
+      ctx.lineTo(x1,y1);
+      ctx.stroke();
+
+      // main color
+      ctx.strokeStyle=base;
+      ctx.lineWidth=lw;
+      ctx.beginPath();
+      ctx.moveTo(x0-nx*.25,y0-ny*.25);
+      ctx.lineTo(x1-nx*.25,y1-ny*.25);
+      ctx.stroke();
+
+      // highlight strand
+      ctx.strokeStyle=light;
+      ctx.lineWidth=Math.max(.35/zoom,lw*.28);
+      ctx.beginPath();
+      ctx.moveTo(x0-nx*.75,y0-ny*.75);
+      ctx.lineTo(x1-nx*.75,y1-ny*.75);
+      ctx.stroke();
+    }
+  });
+}
+
 function render(){
   ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle=bg;ctx.fillRect(0,0,cv.width,cv.height);
@@ -375,6 +445,11 @@ function render(){
   if(mode==='density'){renderDensity(ctx,cx,cy);ctx.restore();return}
   const cols=solo>=0?D.colors.filter(c=>c.index===solo):D.colors.filter(c=>!hidden.has(c.index));
   const maxP=running?runIdx:Infinity;let tot=0;
+  if(mode==='trueview'){
+    renderTrueView(ctx, cols, maxP);
+    ctx.restore();
+    return;
+  }
   cols.forEach(col=>{
     if(!col.points||!col.points.length)return;
     const color=colored?col.color:'#222';
@@ -428,8 +503,8 @@ function setHoop(v){if(!v){hoop=null}else{const[w,h]=v.split(',').map(Number);ho
 // ─── MODES ────────────────────────────────────────────────────
 function setMode(m){
   mode=m;if(running&&m!=='run'){clearInterval(runTimer);running=false}
-  ['R','W','D','T','Dn','Sim'].forEach(x=>{const el=document.getElementById('m'+x);if(el)el.classList.toggle('on',{R:'real',W:'wire',D:'dots',T:'trims',Dn:'density',Sim:'run'}[x]===m)});
-  ['R','W','D','Dn'].forEach(x=>{const el=document.getElementById('l'+x);if(el)el.classList.toggle('on',{R:'real',W:'wire',D:'dots',Dn:'density'}[x]===m)});
+  ['R','TV','W','D','T','Dn','Sim'].forEach(x=>{const el=document.getElementById('m'+x);if(el)el.classList.toggle('on',{R:'real',TV:'trueview',W:'wire',D:'dots',T:'trims',Dn:'density',Sim:'run'}[x]===m)});
+  ['R','TV','W','D','Dn'].forEach(x=>{const el=document.getElementById('l'+x);if(el)el.classList.toggle('on',{R:'real',TV:'trueview',W:'wire',D:'dots',Dn:'density'}[x]===m)});
   document.getElementById('sMd').textContent=m.charAt(0).toUpperCase()+m.slice(1);
   render();
 }
@@ -575,17 +650,60 @@ document.querySelectorAll('.fmtb').forEach(b=>{
 });
 
 // ─── EXPORT ───────────────────────────────────────────────────
-async function convF(){
-  if(!D||!curFile)return;showL('Converting to '+selFmt.toUpperCase()+'...',30);
+async function downloadCurrentFile(outFmt,isSave){
+  const changed = OD && (
+    Math.abs((D.width_mm||0)-(OD.width_mm||0)) > 0.05 ||
+    Math.abs((D.height_mm||0)-(OD.height_mm||0)) > 0.05
+  );
+
+  showL((changed?'Saving resized ':'Converting to ')+outFmt.toUpperCase()+'...',30);
+
   try{
-    const fd=new FormData();fd.append('file',curFile);fd.append('format',selFmt);
-    const r=await fetch(API+'/api/convert',{method:'POST',body:fd});setL('Downloading...',80);
-    if(!r.ok){const e=await r.json();throw new Error(e.error)}
-    const b=await r.blob();const u=URL.createObjectURL(b);
-    const a=document.createElement('a');a.href=u;a.download=D.filename.replace(/\.[^.]+$/,'')+'.'+selFmt;a.click();URL.revokeObjectURL(u);hideL();
-  }catch(e){hideL();alert('Convert error: '+e.message)}
+    const fd=new FormData();
+    fd.append('file',curFile);
+    fd.append('format',outFmt);
+
+    let url = API + '/api/convert';
+
+    if(changed){
+      url = API + '/api/resize';
+      fd.append('width_mm', D.width_mm);
+      fd.append('height_mm', D.height_mm);
+      fd.append('recalculate', 'true');
+    }
+
+    const r=await fetch(url,{method:'POST',body:fd});
+    setL('Downloading...',80);
+
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      throw new Error(e.error || 'Server error '+r.status);
+    }
+
+    const b=await r.blob();
+    const u=URL.createObjectURL(b);
+    const a=document.createElement('a');
+    const base=D.filename.replace(/\.[^.]+$/,'');
+    a.href=u;
+    a.download=base+(changed?'_resized':'')+'.'+outFmt;
+    a.click();
+    URL.revokeObjectURL(u);
+    hideL();
+  }catch(e){
+    hideL();
+    alert('Save/Convert error: '+e.message);
+  }
 }
-function saveF(){convF()}
+
+async function convF(){
+  if(!D||!curFile)return;
+  await downloadCurrentFile(selFmt,false);
+}
+async function saveF(){
+  if(!D||!curFile)return;
+  const ext=(D.format||curFile.name.split('.').pop()).toLowerCase();
+  await downloadCurrentFile(ext,true);
+}
 function expPNG(){if(!D)return;const a=document.createElement('a');a.download=D.filename.replace(/\.[^.]+$/,'')+'_preview.png';a.href=cv.toDataURL('image/png');a.click()}
 async function expPDF(){
   if(!D)return;showL('Generating PDF...',40);
@@ -623,7 +741,7 @@ document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.ctrlKey){if(e.key==='o'){e.preventDefault();openFile()}if(e.key==='p'){e.preventDefault();expPDF()}if(e.key==='e'){e.preventDefault();expPNG()}return}
   if(e.key==='f'||e.key==='F')fitV();if(e.key==='+'||e.key==='=')zI();if(e.key==='-')zO();
-  if(e.key==='1')setZ(1);if(e.key==='2')setZ(2);if(e.key==='r')rotate(90);if(e.key==='Escape'){closeC();showAll()}
+  if(e.key==='1')setZ(1);if(e.key==='2')setZ(2);if(e.key==='t'||e.key==='T')setMode('trueview');if(e.key==='r')rotate(90);if(e.key==='Escape'){closeC();showAll()}
 });
 
 // expose functions globally for inline onclick handlers
@@ -632,7 +750,7 @@ openFile,handleFile,expPDF,expPNG,saveF,setMode,toggleRun,
 zI,zO,fitV,setZ,togColor,showAll,setBg,setHoop,rotate,mH,mV,
 setUnit,rFromW,rFromH,togLock,applyR,resetD,showTab,
 setSolo,togHide,selHoop,openCE,closeC,sColor,sHex,applyC,
-convF,addBulk,bulkConv,clearBulk
+convF,downloadCurrentFile,addBulk,bulkConv,clearBulk
 });
 
 }); // DOMContentLoaded
