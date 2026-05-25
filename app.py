@@ -97,6 +97,39 @@ def safe_get_bounds(pattern):
     return min(xs), min(ys), max(xs), max(ys)
 
 
+
+
+def recalculate_stitches(pattern, max_stitch=40):
+    new_stitches = []
+
+    prev_x = None
+    prev_y = None
+
+    for stitch in pattern.stitches:
+        x, y, cmd = stitch[0], stitch[1], stitch[2]
+        cmd_clean = cmd & pyembroidery.COMMAND_MASK
+
+        if prev_x is not None and cmd_clean == pyembroidery.STITCH:
+            dx = x - prev_x
+            dy = y - prev_y
+            dist = (dx ** 2 + dy ** 2) ** 0.5
+
+            if dist > max_stitch:
+                parts = int(dist // max_stitch) + 1
+
+                for i in range(1, parts):
+                    nx = int(prev_x + (dx * i / parts))
+                    ny = int(prev_y + (dy * i / parts))
+                    new_stitches.append([nx, ny, cmd])
+
+        new_stitches.append([x, y, cmd])
+        prev_x = x
+        prev_y = y
+
+    pattern.stitches = new_stitches
+    return pattern
+
+
 # ── PARSE FILE ─────────────────────────────────────────────
 @app.route('/api/parse', methods=['POST'])
 def parse_file():
@@ -268,17 +301,18 @@ def resize_file():
         sx = new_w_mm / orig_w
         sy = new_h_mm / orig_h
 
-        # Scale all stitches
+        # Scale all stitch coordinates.
+        # Note: this resizes the embroidery geometry. It does not auto re-digitize/add stitches.
         new_stitches = []
         for stitch in pattern.stitches:
             x, y, cmd = stitch[0], stitch[1], stitch[2]
-            cmd_clean = cmd & pyembroidery.COMMAND_MASK
-            if cmd_clean in (pyembroidery.STITCH, pyembroidery.JUMP, pyembroidery.TRIM):
-                new_stitches.append(pyembroidery.EmbThread if False else [int(x * sx), int(y * sy), cmd])
-            else:
-                new_stitches.append(stitch)
+            new_stitches.append([int(round(x * sx)), int(round(y * sy)), cmd])
 
         pattern.stitches = new_stitches
+
+        # Optional stitch recalculation for enlarged designs
+        if recalc and (sx > 1.15 or sy > 1.15):
+            pattern = recalculate_stitches(pattern)
 
         # Write output
         out_suffix = f'.{out_fmt}'
@@ -589,42 +623,4 @@ def generate_pdf():
         # ── Footer ───────────────────────────────────────────
         story.append(Spacer(1, 10*mm))
         story.append(Paragraph(
-            '🐼 Panda Embroidery Viewer · pandadesigns.com · Professional Embroidery Tool Suite',
-            ParagraphStyle('footer', fontSize=8, textColor=colors.gray, alignment=TA_CENTER)
-        ))
-
-        doc.build(story)
-        buf.seek(0)
-
-        return send_file(
-            buf,
-            as_attachment=True,
-            download_name=f"{design.get('filename','design')}_report.pdf",
-            mimetype='application/pdf'
-        )
-
-    except Exception as e:
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
-
-
-# ── HEALTH CHECK ───────────────────────────────────────────
-@app.route('/api/health', methods=['GET'])
-def health():
-    return jsonify({
-        'status'   : 'ok',
-        'service'  : 'Panda Embroidery API',
-        'version'  : '1.0.0',
-        'supported': ['DST','PES','JEF','VP3','HUS','EXP','XXX','EMB'],
-        'features' : ['parse','resize','convert','bulk_convert','change_colors','pdf']
-    })
-
-# ── SERVE VIEWER ────────────────────────────────────────────
-@app.route('/', methods=['GET'])
-def serve_viewer():
-    from flask import send_from_directory
-    return send_from_directory('.', 'viewer.html')
-
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+            '🐼 Panda Embroidery Viewer · pandadesigns.com · Professional Embroidery Tool Sui
