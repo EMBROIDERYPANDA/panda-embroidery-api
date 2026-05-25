@@ -168,11 +168,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
     <div class="ps"><div class="pt">Transform</div>
       <div class="tgrid">
-        <button class="lbtn" onclick="rot(-90)">↺ CCW</button>
-        <button class="lbtn" onclick="rot(90)">↻ CW</button>
+        <button class="lbtn" onclick="rotate(-90)">↺ CCW</button>
+        <button class="lbtn" onclick="rotate(90)">↻ CW</button>
         <button class="lbtn" onclick="mH()">↔ Flip H</button>
         <button class="lbtn" onclick="mV()">↕ Flip V</button>
-        <button class="lbtn" onclick="rot(180)">🔄 180°</button>
+        <button class="lbtn" onclick="rotate(180)">🔄 180°</button>
         <button class="lbtn" onclick="fitV()">⊕ Fit</button>
       </div>
     </div>
@@ -280,6 +280,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div>
 
 <script>
+document.addEventListener("DOMContentLoaded", function() {
 // ─── CONFIG ───────────────────────────────────────────────────
 // Change after deploy to Render.com
 const API = window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'
@@ -443,7 +444,7 @@ function toggleRun(){
 }
 
 // ─── TRANSFORM ────────────────────────────────────────────────
-function rot(d){rot=(rot+d)%360;render()}function mH(){fx*=-1;render()}function mV(){fy*=-1;render()}
+function rotate(deg){rot=(rot+deg)%360;render()}function mH(){fx*=-1;render()}function mV(){fy*=-1;render()}
 
 // ─── RESIZE ───────────────────────────────────────────────────
 function setUnit(u){
@@ -624,6 +625,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='f'||e.key==='F')fitV();if(e.key==='+'||e.key==='=')zI();if(e.key==='-')zO();
   if(e.key==='1')setZ(1);if(e.key==='2')setZ(2);if(e.key==='r')rot(90);if(e.key==='Escape'){closeC();showAll()}
 });
+}); // DOMContentLoaded
 </script>
 </body>
 </html>
